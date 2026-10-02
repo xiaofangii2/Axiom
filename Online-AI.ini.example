@@ -1,0 +1,11 @@
+[ollama]
+api_url = http://127.0.0.1:11434/v1/chat/completions
+token =
+models = qwen2.5:0.5b, llama3.2:1b
+type = openai
+
+[glm]
+api_url = https://open.bigmodel.cn/api/paas/v4/chat/completions
+token = 你的key
+models = glm-4.7-flash
+type = openai
