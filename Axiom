@@ -1,35 +1,77 @@
 #!/bin/sh
-# Axiom - 本地语料 + 历史 + 多服务商 API
+# Axiom - 本地语料 + 历史 + 多服务商 API + 多会话 + 算术
 
 AXIOM_DIR="$HOME/.axiom"
 BRAIN_DIR="$AXIOM_DIR/brain"
 INI="$AXIOM_DIR/Online-AI.ini"
 CURRENT="$AXIOM_DIR/current"
 HISTORY="$AXIOM_DIR/history"
+CONV_DIR="$AXIOM_DIR/conv"
 MODEL_NAME="Axiom"
+MAX_TURNS=40
 
-mkdir -p "$BRAIN_DIR"
+mkdir -p "$BRAIN_DIR" "$CONV_DIR"
 touch "$INI"
 
 show_help() {
   echo "Axiom - 一个还没训练的小模型"
   echo ""
   echo "  Axiom help                       显示帮助"
-  echo "  Axiom chat                       进入本地聊天"
-  echo "  Axiom chat api                   用选中的服务商聊天"
+  echo "  Axiom chat                       本地聊天（一次性）"
+  echo "  Axiom chat api                   一律走 API（一次性）"
+  echo "  Axiom chat set <名>              新建会话"
+  echo "  Axiom chat say <名>              进入会话聊天（一律走 API）"
+  echo "  Axiom chat ls                    列出所有会话"
+  echo "  Axiom chat rm <名>               删除会话"
   echo "  Axiom api <ID>                   添加服务商"
-  echo "  Axiom api edit <ID>              编辑服务商"
+  echo "  Axiom api edit|set <ID>          编辑服务商"
   echo "  Axiom api rm <ID>                删除服务商"
   echo "  Axiom model                      列出服务商和模型"
   echo "  Axiom model <ID> <模型名>        切换当前服务商+模型"
   echo "  Axiom train <输入> :: <回复>     教它一句"
-  echo "  Axiom brain                      看看学了啥"
+  echo "  Axiom brain [--raw]              看看学了啥"
   echo "  Axiom forget <输入>              忘掉一条"
-  echo "  Axiom history                    看聊天记录"
-  echo "  Axiom import <brain.tar.gz>      导入语料包"
+  echo "  Axiom history [clear]            看/清空一次性聊天记录"
+  echo "  Axiom import <文件|URL>          导入语料包"
   echo "  Axiom export [文件]              导出语料为 brain.tar.gz"
   echo ""
   echo "协议类型 type: openai / gemini / ollama"
+  echo "会话上限：$MAX_TURNS 轮，超出从头砍"
+  echo "输入纯算式（如 3+5、12×4）会直接用 bc 计算"
+}
+
+# ===== 输入归一化：× ÷ 转 * /，去掉首尾空格和结尾标点 =====
+normalize_input() {
+  printf '%s' "$1" | sed 's/×/*/g; s/÷/\//g' | sed 's/^[[:space:]]*//;s/[，。？！、,\.?!;； ]*$//'
+}
+
+# ===== 算术识别 =====
+is_math() {
+  expr=$(normalize_input "$1")
+  [ -z "$expr" ] && return 1
+
+  # 去掉允许的字符，如果还有剩余，就不是算式
+  left=$(printf '%s' "$expr" | tr -d '0-9 +*/%().,-')
+  [ -n "$left" ] && return 1
+
+  # 必须含数字
+  case "$expr" in
+    *[0-9]*) ;;
+    *) return 1 ;;
+  esac
+
+  # 必须含运算符
+  case "$expr" in
+    *[+\-*/%]*) ;;
+    *) return 1 ;;
+  esac
+
+  return 0
+}
+
+do_math() {
+  expr=$(normalize_input "$1")
+  printf '%s\n' "scale=10; $expr" | bc 2>/dev/null | sed 's/\.0*$//;s/\([0-9]\)0*$/\1/'
 }
 
 # ===== 训练 =====
@@ -43,7 +85,7 @@ train_mode() {
       reply=$(echo "$reply" | sed 's/^ *//;s/ *$//')
       [ -z "$input" ] && { echo "Axiom: 输入不能为空"; return; }
       [ -z "$reply" ] && { echo "Axiom: 回复不能为空"; return; }
-      fname=$(printf '%s' "$input" | sed 's|/|_|g' | tr 'A-Z' 'a-z')
+      fname=$(printf '%s' "$input" | sed 's|/|_|g')
       printf '%s' "$reply" > "$BRAIN_DIR/$fname"
       echo "Axiom: 学会了 —— 「$fname」→「$reply」"
       ;;
@@ -54,7 +96,22 @@ train_mode() {
   esac
 }
 
+# ===== 看脑子 =====
 brain_mode() {
+  raw=""
+  [ "$1" = "--raw" ] && raw="yes"
+  if [ "$raw" = "yes" ]; then
+    echo "Axiom 学过的东西（仅文件名）："
+    count=0
+    for f in "$BRAIN_DIR"/*; do
+      [ -e "$f" ] || continue
+      echo "  $(basename "$f")"
+      count=$((count + 1))
+    done
+    echo ""
+    echo "共 $count 条"
+    return
+  fi
   echo "Axiom 学过的东西："
   count=0
   for f in "$BRAIN_DIR"/*; do
@@ -66,28 +123,45 @@ brain_mode() {
   echo "共 $count 条"
 }
 
+# ===== 忘掉一条 =====
 forget_mode() {
   key="$*"
   [ -z "$key" ] && { echo "Axiom: 用法：Axiom forget <输入>"; return; }
+  key=$(normalize_input "$key")
   key_lower=$(printf '%s' "$key" | tr 'A-Z' 'a-z')
-  f="$BRAIN_DIR/$key_lower"
-  if [ -f "$f" ]; then
-    rm -f "$f"
+
+  if [ -f "$BRAIN_DIR/$key_lower" ]; then
+    rm -f "$BRAIN_DIR/$key_lower"
     echo "Axiom: 忘掉了 —— 「$key_lower」"
-  else
-    echo "Axiom: 没找到「$key」"
+    return
   fi
+  if [ -f "$BRAIN_DIR/$key" ]; then
+    rm -f "$BRAIN_DIR/$key"
+    echo "Axiom: 忘掉了 —— 「$key」"
+    return
+  fi
+  echo "Axiom: 没找到「$key」"
 }
 
+# ===== 本地查表 =====
 local_lookup() {
-  inp_lower=$(printf '%s' "$1" | tr 'A-Z' 'a-z')
+  inp=$(normalize_input "$1")
+  inp_lower=$(printf '%s' "$inp" | tr 'A-Z' 'a-z')
+
   f="$BRAIN_DIR/$inp_lower"
   if [ -f "$f" ]; then
     cat "$f"; return 0
   fi
+
+  f="$BRAIN_DIR/$inp"
+  if [ -f "$f" ]; then
+    cat "$f"; return 0
+  fi
+
   return 1
 }
 
+# ===== 历史 =====
 log_history() {
   ts=$(date "+%Y-%m-%d %H:%M:%S")
   printf '[%s] 你: %s\n' "$ts" "$1" >> "$HISTORY"
@@ -95,10 +169,26 @@ log_history() {
 }
 
 history_mode() {
-  [ -f "$HISTORY" ] && cat "$HISTORY" || echo "Axiom: 还没有聊天记录"
+  case "$1" in
+    clear)
+      if [ -f "$HISTORY" ]; then
+        rm -f "$HISTORY"
+        echo "Axiom: 聊天记录已清空"
+      else
+        echo "Axiom: 还没有聊天记录"
+      fi
+      ;;
+    *)
+      if [ -f "$HISTORY" ]; then
+        cat "$HISTORY"
+      else
+        echo "Axiom: 还没有聊天记录"
+      fi
+      ;;
+  esac
 }
 
-# ===== 校验：只含数字或英文 =====
+# ===== 工具 =====
 is_alnum() {
   case "$1" in
     *[!0-9A-Za-z]*) return 1 ;;
@@ -107,7 +197,30 @@ is_alnum() {
   esac
 }
 
-# ===== 读 META 字段 =====
+extract_content() {
+  body="$1"
+  out=$(printf '%s' "$body" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
+  if [ -z "$out" ]; then
+    out=$(printf '%s' "$body" | sed -n 's/.*"content":"\([^"]*\)".*/\1/p' | head -1)
+  fi
+  printf '%s' "$out"
+}
+
+extract_content_ollama() {
+  body="$1"
+  out=$(printf '%s' "$body" | jq -r '.message.content // empty' 2>/dev/null)
+  if [ -z "$out" ]; then
+    out=$(printf '%s' "$body" | sed -n 's/.*"content":"\([^"]*\)".*/\1/p' | head -1)
+  fi
+  printf '%s' "$out"
+}
+
+extract_content_gemini() {
+  body="$1"
+  out=$(printf '%s' "$body" | jq -r '.candidates[0].content.parts[0].text // empty' 2>/dev/null)
+  printf '%s' "$out"
+}
+
 meta_get() {
   file="$1"; key="$2"
   [ -f "$file" ] || return 1
@@ -128,192 +241,339 @@ meta_get() {
   ' "$file"
 }
 
-# ===== 导出语料包 =====
-export_mode() {
-  out="$1"
-  [ -z "$out" ] && out="brain.tar.gz"
-
-  n=0
-  for f in "$BRAIN_DIR"/*; do
-    [ -e "$f" ] && n=$((n+1))
-  done
-  if [ "$n" -eq 0 ]; then
-    echo "Axiom: 没有语料可导出"
+# ===== 会话裁剪 =====
+conv_trim() {
+  convfile="$1"
+  [ -f "$convfile" ] || return
+  lines=$(wc -l < "$convfile" | tr -d ' ')
+  max_lines=$((MAX_TURNS * 2))
+  if [ "$lines" -le "$max_lines" ]; then
     return
   fi
-
-  # id：只允许数字英文
-  while :; do
-    printf "id（数字或英文）: "
-    read pid
-    if is_alnum "$pid"; then
-      break
-    fi
-    echo "Axiom: id 只能包含数字和英文，请重输"
-  done
-
-  printf "author（回车默认 unknown）: "
-  read pauthor
-  [ -z "$pauthor" ] && pauthor="unknown"
-
-  printf "version（回车默认 1.0.0）: "
-  read pver
-  [ -z "$pver" ] && pver="1.0.0"
-
-  ptime=$(date "+%Y-%m-%d %H:%M:%S")
-
-  # 转绝对路径
-  case "$out" in
-    /*) ;;
-    *)  out="$(pwd)/$out" ;;
-  esac
-
-  tmp=$(mktemp -d)
-  cp -r "$BRAIN_DIR" "$tmp/brain"
-  {
-    printf 'id = %s\n' "$pid"
-    printf 'author = %s\n' "$pauthor"
-    printf 'version = %s\n' "$pver"
-    printf 'count = %s\n' "$n"
-    printf 'time = %s\n' "$ptime"
-  } > "$tmp/META"
-
-  (cd "$tmp" && tar -czf "$out" brain META) || {
-    echo "Axiom: 打包失败"
-    rm -rf "$tmp"
-    return
-  }
-  rm -rf "$tmp"
-
-  echo "Axiom: 已导出 $n 条语料 → $out"
-  echo "  id:      $pid"
-  echo "  author:  $pauthor"
-  echo "  version: $pver"
-  echo "  time:    $ptime"
+  tail -n "$max_lines" "$convfile" > "$convfile.tmp" && mv "$convfile.tmp" "$convfile"
+  echo "Axiom: 会话已超过 $MAX_TURNS 轮，裁剪最早的内容"
 }
 
-# ===== 导入语料包 =====
-import_mode() {
-  src="$1"
-  [ -z "$src" ] && { echo "Axiom: 用法：Axiom import <brain.tar.gz>"; return; }
-  [ -f "$src" ] || { echo "Axiom: 找不到文件 $src"; return; }
+conv_append() {
+  convfile="$1"; role="$2"; content="$3"
+  printf '%s: %s\n' "$role" "$content" >> "$convfile"
+}
 
-  case "$src" in
-    *.tar.gz|*.tgz) ;;
-    *) echo "Axiom: 只支持 .tar.gz 或 .tgz"; return ;;
-  esac
+# ===== 会话管理 =====
+chat_set() {
+  name="$1"
+  [ -z "$name" ] && { echo "Axiom: 用法：Axiom chat set <名>"; return; }
+  f="$CONV_DIR/$name"
+  if [ -f "$f" ]; then
+    echo "Axiom: 会话「$name」已存在"
+    return
+  fi
+  : > "$f"
+  echo "Axiom: 已新建会话「$name」"
+}
 
-  tmp=$(mktemp -d)
-  tar -xzf "$src" -C "$tmp" || { echo "Axiom: 解压失败"; rm -rf "$tmp"; return; }
+chat_ls() {
+  if [ -z "$(ls -A "$CONV_DIR" 2>/dev/null)" ]; then
+    echo "Axiom: 还没有会话"
+    return
+  fi
+  echo "会话列表："
+  for f in "$CONV_DIR"/*; do
+    [ -e "$f" ] || continue
+    name=$(basename "$f")
+    n=$(wc -l < "$f" | tr -d ' ')
+    turns=$((n / 2))
+    echo "  $name  ($turns 轮)"
+  done
+}
 
-  if [ -d "$tmp/brain" ]; then
-    src_brain="$tmp/brain"
+chat_rm() {
+  name="$1"
+  [ -z "$name" ] && { echo "Axiom: 用法：Axiom chat rm <名>"; return; }
+  f="$CONV_DIR/$name"
+  if [ -f "$f" ]; then
+    rm -f "$f"
+    echo "Axiom: 已删除会话「$name」"
   else
-    n=$(ls -A "$tmp" | wc -l)
-    if [ "$n" -eq 1 ]; then
-      only=$(ls -A "$tmp")
-      if [ -d "$tmp/$only/brain" ]; then
-        src_brain="$tmp/$only/brain"
-        metafile="$tmp/$only/META"
+    echo "Axiom: 没有会话「$name」"
+  fi
+}
+
+# ===== 当前选中 =====
+load_current() {
+  [ -f "$CURRENT" ] || return 1
+  CUR_ID=$(sed -n '1p' "$CURRENT")
+  CUR_MODEL=$(sed -n '2p' "$CURRENT")
+  [ -n "$CUR_ID" ] && [ -n "$CUR_MODEL" ]
+}
+
+# ===== 调 API（无上下文）=====
+ask_api_once() {
+  inp="$1"
+  load_current || { echo "Axiom: 还没选服务商" >&2; return 1; }
+  url=$(ini_get "$CUR_ID" "api_url")
+  token=$(ini_get "$CUR_ID" "token")
+  type=$(ini_get "$CUR_ID" "type")
+  [ -z "$type" ] && type="openai"
+  [ -z "$url" ] && { echo "Axiom: 服务商 $CUR_ID 没有 api_url" >&2; return 1; }
+
+  case "$type" in
+    gemini)
+      full_url="$url/$CUR_MODEL:generateContent"
+      json=$(jq -n --arg c "$inp" '{contents:[{role:"user",parts:[{text:$c}]}]}')
+      response=$(curl -s -X POST "$full_url" \
+        -H "x-goog-api-key: $token" \
+        -H "Content-Type: application/json" -d "$json")
+      extract_content_gemini "$response"
+      ;;
+    ollama)
+      json=$(jq -n --arg m "$CUR_MODEL" --arg c "$inp" \
+        '{model:$m, messages:[{role:"user",content:$c}], stream:false}')
+      response=$(curl -s -X POST "$url" -H "Content-Type: application/json" -d "$json")
+      extract_content_ollama "$response"
+      ;;
+    *)
+      json=$(jq -n --arg m "$CUR_MODEL" --arg c "$inp" \
+        '{model:$m, messages:[{role:"user", content:$c}]}')
+      if [ -n "$token" ]; then
+        response=$(curl -s -X POST "$url" \
+          -H "Authorization: Bearer $token" \
+          -H "Content-Type: application/json" -d "$json")
+      else
+        response=$(curl -s -X POST "$url" \
+          -H "Content-Type: application/json" -d "$json")
       fi
-    fi
-  fi
-  [ -z "$metafile" ] && metafile="$tmp/META"
-
-  if [ -z "$src_brain" ] || [ ! -d "$src_brain" ]; then
-    echo "Axiom: 压缩包里没有 brain/ 目录"
-    rm -rf "$tmp"
-    return
-  fi
-
-  # 校验 META
-  if [ ! -f "$metafile" ]; then
-    echo "Axiom: 缺少 META 文件，包不合法"
-    rm -rf "$tmp"
-    return
-  fi
-
-  mid=$(meta_get "$metafile" "id")
-  mauthor=$(meta_get "$metafile" "author")
-  mver=$(meta_get "$metafile" "version")
-  mcount=$(meta_get "$metafile" "count")
-  mtime=$(meta_get "$metafile" "time")
-
-  if ! is_alnum "$mid"; then
-    echo "Axiom: META 里 id 不合法（只能数字或英文）"
-    rm -rf "$tmp"
-    return
-  fi
-  if [ -z "$mauthor" ] || [ -z "$mver" ]; then
-    echo "Axiom: META 缺少 author 或 version"
-    rm -rf "$tmp"
-    return
-  fi
-  case "$mcount" in
-    ""|*[!0-9]*)
-      echo "Axiom: META 里 count 不是数字"
-      rm -rf "$tmp"
-      return
+      extract_content "$response"
       ;;
   esac
-
-  echo "包信息："
-  echo "  ID:       $mid"
-  echo "  作者:     $mauthor"
-  echo "  版本:     $mver"
-  echo "  条数:     $mcount"
-  echo "  导出时间: $mtime"
-  echo ""
-
-  count_new=0
-  count_over=0
-  count_skip=0
-  all=""
-
-  for f in "$src_brain"/*; do
-    [ -f "$f" ] || continue
-    name=$(basename "$f")
-    name_lower=$(printf '%s' "$name" | tr 'A-Z' 'a-z')
-    dst="$BRAIN_DIR/$name_lower"
-
-    if [ -f "$dst" ]; then
-      if [ "$all" = "over" ]; then
-        cp "$f" "$dst"; count_over=$((count_over+1)); continue
-      fi
-      if [ "$all" = "skip" ]; then
-        count_skip=$((count_skip+1)); continue
-      fi
-
-      echo "检测到同文件：$name_lower"
-      echo "请选择："
-      echo "  1 覆盖"
-      echo "  2 跳过"
-      echo "  3 全部覆盖"
-      echo "  4 全部跳过"
-      printf "> "
-      read choice
-      case "$choice" in
-        1) cp "$f" "$dst"; count_over=$((count_over+1)) ;;
-        2) count_skip=$((count_skip+1)) ;;
-        3) all="over"; cp "$f" "$dst"; count_over=$((count_over+1)) ;;
-        4) all="skip"; count_skip=$((count_skip+1)) ;;
-        *) echo "Axiom: 无效选择，跳过"; count_skip=$((count_skip+1)) ;;
-      esac
-    else
-      cp "$f" "$dst"
-      count_new=$((count_new+1))
-    fi
-  done
-
-  rm -rf "$tmp"
-
-  echo "Axiom: 导入完成"
-  echo "  新增: $count_new"
-  echo "  覆盖: $count_over"
-  echo "  跳过: $count_skip"
 }
 
-# ===== INI 读取 =====
+# ===== 调 API（带上下文）=====
+ask_api_ctx() {
+  convfile="$1"
+  inp="$2"
+  load_current || { echo "Axiom: 还没选服务商" >&2; return 1; }
+  url=$(ini_get "$CUR_ID" "api_url")
+  token=$(ini_get "$CUR_ID" "token")
+  type=$(ini_get "$CUR_ID" "type")
+  [ -z "$type" ] && type="openai"
+  [ -z "$url" ] && { echo "Axiom: 服务商 $CUR_ID 没有 api_url" >&2; return 1; }
+
+  msgs_json="[]"
+  if [ -s "$convfile" ]; then
+    msgs_json=$(awk '
+      /^user: /      { sub(/^user: /, "");      print "user\t" $0 }
+      /^assistant: / { sub(/^assistant: /, ""); print "assistant\t" $0 }
+    ' "$convfile" | jq -R -s '
+      split("\n") | map(select(length > 0)) |
+      map(split("\t")) |
+      map({role: .[0], content: .[1]})
+    ')
+  fi
+
+  case "$type" in
+    gemini)
+      contents=$(printf '%s' "$msgs_json" | jq '
+        map({role: (if .role=="assistant" then "model" else "user" end),
+             parts: [{text: .content}]})
+      ')
+      contents=$(printf '%s' "$contents" | jq --arg c "$inp" \
+        '. + [{role:"user", parts:[{text:$c}]}]')
+      json=$(jq -n --argjson c "$contents" '{contents:$c}')
+      full_url="$url/$CUR_MODEL:generateContent"
+      response=$(curl -s -X POST "$full_url" \
+        -H "x-goog-api-key: $token" \
+        -H "Content-Type: application/json" -d "$json")
+      extract_content_gemini "$response"
+      ;;
+    ollama)
+      json=$(printf '%s' "$msgs_json" | jq --arg m "$CUR_MODEL" --arg c "$inp" \
+        '{model:$m, messages: (. + [{role:"user", content:$c}]), stream:false}')
+      response=$(curl -s -X POST "$url" -H "Content-Type: application/json" -d "$json")
+      extract_content_ollama "$response"
+      ;;
+    *)
+      json=$(printf '%s' "$msgs_json" | jq --arg m "$CUR_MODEL" --arg c "$inp" \
+        '{model:$m, messages: (. + [{role:"user", content:$c}])}')
+      if [ -n "$token" ]; then
+        response=$(curl -s -X POST "$url" \
+          -H "Authorization: Bearer $token" \
+          -H "Content-Type: application/json" -d "$json")
+      else
+        response=$(curl -s -X POST "$url" \
+          -H "Content-Type: application/json" -d "$json")
+      fi
+      extract_content "$response"
+      ;;
+  esac
+}
+
+# ===== 会话聊天 =====
+chat_say() {
+  name="$1"
+  [ -z "$name" ] && { echo "Axiom: 用法：Axiom chat say <名>"; return; }
+  convfile="$CONV_DIR/$name"
+  if [ ! -f "$convfile" ]; then
+    echo "Axiom: 没有会话「$name」，先用 Axiom chat set $name 建一个"
+    return
+  fi
+  if ! load_current; then
+    echo "Axiom: 还没选服务商，先 Axiom model <ID> <模型>"
+    return
+  fi
+
+  echo "Axiom: 进入会话「$name」（服务商: $CUR_ID / 模型: $CUR_MODEL）"
+  echo "Axiom: 一律走 API，上限 $MAX_TURNS 轮"
+  echo "Axiom: Ctrl+C 退出"
+
+  while true; do
+    printf "你: "
+    read input
+    [ -z "$input" ] && continue
+
+    if is_math "$input"; then
+      ans=$(do_math "$input")
+      if [ -n "$ans" ]; then
+        echo "Axiom: $ans"
+        conv_append "$convfile" "user" "$input"
+        conv_append "$convfile" "assistant" "$ans"
+      else
+        echo "Axiom: 算式算不出来"
+      fi
+      conv_trim "$convfile"
+      continue
+    fi
+
+    reply=$(ask_api_ctx "$convfile" "$input")
+    if [ -n "$reply" ]; then
+      echo "Axiom (api): $reply"
+      conv_append "$convfile" "user" "$input"
+      conv_append "$convfile" "assistant" "$reply"
+    else
+      echo "Axiom: API 无响应"
+    fi
+
+    conv_trim "$convfile"
+  done
+}
+
+# ===== 本地聊天 =====
+chat_local() {
+  echo "Axiom: 已进入本地聊天模式（Ctrl+C 退出）"
+  while true; do
+    printf "你: "
+    read input
+    [ -z "$input" ] && continue
+
+    if is_math "$input"; then
+      ans=$(do_math "$input")
+      if [ -n "$ans" ]; then
+        echo "Axiom: $ans"; log_history "$input" "$ans"
+      else
+        echo "Axiom: 算式算不出来"; log_history "$input" "算式错误"
+      fi
+      continue
+    fi
+
+    if out=$(local_lookup "$input"); then
+      echo "Axiom: $out"; log_history "$input" "$out"
+    else
+      echo "Axiom: 未训练"; log_history "$input" "未训练"
+    fi
+  done
+}
+
+# ===== 一次性 API 聊天 =====
+chat_api() {
+  if ! load_current; then
+    echo "Axiom: 还没选服务商，先 Axiom model <ID> <模型>"
+    return 1
+  fi
+  echo "Axiom: API 聊天（服务商: $CUR_ID / 模型: $CUR_MODEL）"
+  echo "Axiom: 一律走 API，Ctrl+C 退出"
+  while true; do
+    printf "你: "
+    read input
+    [ -z "$input" ] && continue
+
+    if is_math "$input"; then
+      ans=$(do_math "$input")
+      if [ -n "$ans" ]; then
+        echo "Axiom: $ans"; log_history "$input" "$ans"
+      else
+        echo "Axiom: 算式算不出来"
+      fi
+      continue
+    fi
+
+    reply=$(ask_api_once "$input")
+    if [ -n "$reply" ]; then
+      echo "Axiom (api): $reply"; log_history "$input" "$reply"
+    else
+      echo "Axiom: API 无响应"
+    fi
+  done
+}
+
+# ===== 服务商增删改 =====
+api_add() {
+  id="$1"
+  [ -z "$id" ] && { echo "Axiom: 用法：Axiom api <ID>"; return; }
+  if ini_exists "$id"; then
+    echo "Axiom: 已有同名服务商「$id」，不做任何事"; return
+  fi
+  printf "协议类型（openai/gemini/ollama，回车默认 openai）: "
+  read type
+  [ -z "$type" ] && type="openai"
+  printf "api_url: "
+  read url
+  [ -z "$url" ] && { echo "Axiom: url 不能为空"; return; }
+  printf "token（可空，Ollama 直接回车）: "
+  read token
+  printf "models（逗号分隔）: "
+  read models
+  [ -z "$models" ] && { echo "Axiom: 至少一个模型"; return; }
+  ini_write "$id" "$url" "$token" "$models" "$type"
+  echo "Axiom: 已保存服务商「$id」（type=$type）"
+}
+
+api_edit() {
+  id="$1"
+  [ -z "$id" ] && { echo "Axiom: 用法：Axiom api edit <ID>"; return; }
+  if ! ini_exists "$id"; then
+    echo "Axiom: 没有服务商「$id」"; return
+  fi
+  old_type=$(ini_get "$id" "type"); [ -z "$old_type" ] && old_type="openai"
+  old_url=$(ini_get "$id" "api_url")
+  old_token=$(ini_get "$id" "token")
+  old_models=$(ini_get "$id" "models")
+
+  echo "编辑服务商 [$id]（回车保留原值）"
+  printf "协议类型 [%s]: " "$old_type"; read v; [ -z "$v" ] && v="$old_type"; new_type="$v"
+  printf "api_url [%s]: " "$old_url"; read v; [ -z "$v" ] && v="$old_url"; new_url="$v"
+  printf "token [%s]: " "$old_token"; read v; [ -z "$v" ] && v="$old_token"; new_token="$v"
+  printf "models [%s]: " "$old_models"; read v; [ -z "$v" ] && v="$old_models"; new_models="$v"
+
+  ini_delete "$id"
+  ini_write "$id" "$new_url" "$new_token" "$new_models" "$new_type"
+  echo "Axiom: 已更新服务商「$id」"
+}
+
+api_rm() {
+  id="$1"
+  [ -z "$id" ] && { echo "Axiom: 用法：Axiom api rm <ID>"; return; }
+  if ! ini_exists "$id"; then echo "Axiom: 没有「$id」"; return; fi
+  ini_delete "$id"
+  echo "Axiom: 已删除「$id」"
+  if [ -f "$CURRENT" ]; then
+    cur=$(sed -n '1p' "$CURRENT")
+    if [ "$cur" = "$id" ]; then
+      rm -f "$CURRENT"; echo "Axiom: 当前选中已清空"
+    fi
+  fi
+}
+
+# ===== INI =====
 ini_get() {
   awk -v id="$1" -v key="$2" '
     BEGIN { inblock = 0 }
@@ -356,8 +616,7 @@ ini_delete() {
       line = $0
       gsub(/^[[:space:]]*\[/, "", line)
       gsub(/\][[:space:]]*$/, "", line)
-      if (line == id) { inblock = 1; next }
-      else { inblock = 0 }
+      if (line == id) { inblock = 1; next } else { inblock = 0 }
     }
     !inblock { print }
   ' "$INI" > "$INI.tmp" && mv "$INI.tmp" "$INI"
@@ -385,198 +644,7 @@ ini_list_ids() {
   ' "$INI"
 }
 
-# ===== 当前选中 =====
-load_current() {
-  [ -f "$CURRENT" ] || return 1
-  CUR_ID=$(sed -n '1p' "$CURRENT")
-  CUR_MODEL=$(sed -n '2p' "$CURRENT")
-  [ -n "$CUR_ID" ] && [ -n "$CUR_MODEL" ]
-}
-
-# ===== 调 API =====
-ask_api() {
-  inp="$1"
-  if ! load_current; then
-    echo "Axiom: 还没选服务商，先 Axiom model <ID> <模型>" >&2
-    return 1
-  fi
-  url=$(ini_get "$CUR_ID" "api_url")
-  token=$(ini_get "$CUR_ID" "token")
-  type=$(ini_get "$CUR_ID" "type")
-  [ -z "$type" ] && type="openai"
-  if [ -z "$url" ]; then
-    echo "Axiom: 服务商 $CUR_ID 没有 api_url" >&2
-    return 1
-  fi
-
-  case "$type" in
-    gemini)
-      full_url="$url/$CUR_MODEL:generateContent"
-      json=$(jq -n --arg c "$inp" \
-        '{contents:[{role:"user",parts:[{text:$c}]}]}')
-      response=$(curl -s -X POST "$full_url" \
-        -H "x-goog-api-key: $token" \
-        -H "Content-Type: application/json" \
-        -d "$json")
-      echo "$response" | jq -r '.candidates[0].content.parts[0].text // empty'
-      ;;
-    ollama)
-      json=$(jq -n --arg m "$CUR_MODEL" --arg c "$inp" \
-        '{model:$m, messages:[{role:"user",content:$c}], stream:false}')
-      response=$(curl -s -X POST "$url" \
-        -H "Content-Type: application/json" \
-        -d "$json")
-      echo "$response" | jq -r '.message.content // empty'
-      ;;
-    *)
-      json=$(jq -n --arg m "$CUR_MODEL" --arg c "$inp" \
-        '{model:$m, messages:[{role:"user", content:$c}]}')
-      if [ -n "$token" ]; then
-        response=$(curl -s -X POST "$url" \
-          -H "Authorization: Bearer $token" \
-          -H "Content-Type: application/json" \
-          -d "$json")
-      else
-        response=$(curl -s -X POST "$url" \
-          -H "Content-Type: application/json" \
-          -d "$json")
-      fi
-      echo "$response" | jq -r '.choices[0].message.content // empty'
-      ;;
-  esac
-}
-
-# ===== 本地聊天 =====
-chat_local() {
-  echo "Axiom: 已进入本地聊天模式（Ctrl+C 退出）"
-  while true; do
-    printf "你: "
-    read input
-    [ -z "$input" ] && continue
-    if out=$(local_lookup "$input"); then
-      echo "Axiom: $out"; log_history "$input" "$out"
-    else
-      echo "Axiom: 未训练"; log_history "$input" "未训练"
-    fi
-  done
-}
-
-# ===== API 聊天 =====
-chat_api() {
-  if ! load_current; then
-    echo "Axiom: 还没选服务商，先 Axiom model <ID> <模型>"
-    return 1
-  fi
-  echo "Axiom: API 聊天（服务商: $CUR_ID / 模型: $CUR_MODEL）"
-  echo "Axiom: Ctrl+C 退出"
-  while true; do
-    printf "你: "
-    read input
-    [ -z "$input" ] && continue
-    if out=$(local_lookup "$input"); then
-      echo "Axiom: $out"; log_history "$input" "$out"
-    else
-      reply=$(ask_api "$input")
-      if [ -n "$reply" ]; then
-        echo "Axiom: $reply"; log_history "$input" "$reply"
-      else
-        echo "Axiom: API 无响应"
-      fi
-    fi
-  done
-}
-
-# ===== 添加服务商 =====
-api_add() {
-  id="$1"
-  [ -z "$id" ] && { echo "Axiom: 用法：Axiom api <ID>"; return; }
-
-  if ini_exists "$id"; then
-    echo "Axiom: 已有同名服务商「$id」，不做任何事"
-    return
-  fi
-
-  printf "协议类型（openai/gemini/ollama，回车默认 openai）: "
-  read type
-  [ -z "$type" ] && type="openai"
-
-  printf "api_url: "
-  read url
-  [ -z "$url" ] && { echo "Axiom: url 不能为空"; return; }
-
-  printf "token（可空，Ollama 直接回车）: "
-  read token
-
-  printf "models（逗号分隔）: "
-  read models
-  [ -z "$models" ] && { echo "Axiom: 至少一个模型"; return; }
-
-  ini_write "$id" "$url" "$token" "$models" "$type"
-  echo "Axiom: 已保存服务商「$id」（type=$type）"
-}
-
-# ===== 编辑服务商 =====
-api_edit() {
-  id="$1"
-  [ -z "$id" ] && { echo "Axiom: 用法：Axiom api edit <ID>"; return; }
-  if ! ini_exists "$id"; then
-    echo "Axiom: 没有服务商「$id」"
-    return
-  fi
-
-  old_type=$(ini_get "$id" "type"); [ -z "$old_type" ] && old_type="openai"
-  old_url=$(ini_get "$id" "api_url")
-  old_token=$(ini_get "$id" "token")
-  old_models=$(ini_get "$id" "models")
-
-  echo "编辑服务商 [$id]（回车保留原值）"
-
-  printf "协议类型 [%s]: " "$old_type"
-  read v
-  [ -z "$v" ] && v="$old_type"
-  new_type="$v"
-
-  printf "api_url [%s]: " "$old_url"
-  read v
-  [ -z "$v" ] && v="$old_url"
-  new_url="$v"
-
-  printf "token [%s]: " "$old_token"
-  read v
-  [ -z "$v" ] && v="$old_token"
-  new_token="$v"
-
-  printf "models [%s]: " "$old_models"
-  read v
-  [ -z "$v" ] && v="$old_models"
-  new_models="$v"
-
-  ini_delete "$id"
-  ini_write "$id" "$new_url" "$new_token" "$new_models" "$new_type"
-  echo "Axiom: 已更新服务商「$id」"
-}
-
-# ===== 删除服务商 =====
-api_rm() {
-  id="$1"
-  [ -z "$id" ] && { echo "Axiom: 用法：Axiom api rm <ID>"; return; }
-  if ! ini_exists "$id"; then
-    echo "Axiom: 没有「$id」"
-    return
-  fi
-  ini_delete "$id"
-  echo "Axiom: 已删除「$id」"
-
-  if [ -f "$CURRENT" ]; then
-    cur=$(sed -n '1p' "$CURRENT")
-    if [ "$cur" = "$id" ]; then
-      rm -f "$CURRENT"
-      echo "Axiom: 当前选中已清空"
-    fi
-  fi
-}
-
-# ===== 列出 / 切换模型 =====
+# ===== model =====
 model_mode() {
   if [ $# -eq 0 ]; then
     load_current
@@ -604,29 +672,200 @@ model_mode() {
     return
   fi
 
-  id="$1"
-  model="$2"
+  id="$1"; model="$2"
   [ -z "$model" ] && { echo "Axiom: 用法：Axiom model <ID> <模型名>"; return; }
-
-  if ! ini_exists "$id"; then
-    echo "Axiom: 没有服务商「$id」"
-    return
-  fi
+  if ! ini_exists "$id"; then echo "Axiom: 没有服务商「$id」"; return; fi
 
   models=$(ini_get "$id" "models")
   found=0
   for m in $(echo "$models" | tr ',' ' '); do
     [ "$m" = "$model" ] && found=1 && break
   done
-
   if [ "$found" -ne 1 ]; then
     echo "Axiom: 服务商「$id」下没有模型「$model」"
-    echo "可用：$models"
+    echo "可用：$models"; return
+  fi
+  printf '%s\n%s\n' "$id" "$model" > "$CURRENT"
+  echo "Axiom: 已切换 → $id / $model"
+}
+
+# ===== 导出 =====
+export_mode() {
+  out="$1"
+  [ -z "$out" ] && out="brain.tar.gz"
+  n=0
+  for f in "$BRAIN_DIR"/*; do
+    [ -e "$f" ] && n=$((n+1))
+  done
+  if [ "$n" -eq 0 ]; then
+    echo "Axiom: 没有语料可导出"
     return
   fi
 
-  printf '%s\n%s\n' "$id" "$model" > "$CURRENT"
-  echo "Axiom: 已切换 → $id / $model"
+  while :; do
+    printf "id（数字或英文）: "
+    read pid
+    if is_alnum "$pid"; then break; fi
+    echo "Axiom: id 只能包含数字和英文，请重输"
+  done
+
+  printf "author（回车默认 unknown）: "
+  read pauthor
+  [ -z "$pauthor" ] && pauthor="unknown"
+
+  printf "version（回车默认 1.0.0）: "
+  read pver
+  [ -z "$pver" ] && pver="1.0.0"
+
+  printf "description（可空）: "
+  read pdesc
+
+  ptime=$(date "+%Y-%m-%d %H:%M:%S")
+
+  case "$out" in
+    /*) ;;
+    *)  out="$(pwd)/$out" ;;
+  esac
+
+  tmp=$(mktemp -d)
+  cp -r "$BRAIN_DIR" "$tmp/brain"
+  {
+    printf 'id = %s\n' "$pid"
+    printf 'author = %s\n' "$pauthor"
+    printf 'version = %s\n' "$pver"
+    printf 'description = %s\n' "$pdesc"
+    printf 'count = %s\n' "$n"
+    printf 'time = %s\n' "$ptime"
+  } > "$tmp/META"
+
+  (cd "$tmp" && tar -czf "$out" brain META) || {
+    echo "Axiom: 打包失败"; rm -rf "$tmp"; return
+  }
+  rm -rf "$tmp"
+
+  echo "Axiom: 已导出 $n 条语料 → $out"
+  echo "  id:          $pid"
+  echo "  author:      $pauthor"
+  echo "  version:     $pver"
+  echo "  description: $pdesc"
+  echo "  time:        $ptime"
+}
+
+# ===== 导入 =====
+import_mode() {
+  src="$1"
+  [ -z "$src" ] && { echo "Axiom: 用法：Axiom import <brain.tar.gz|URL>"; return; }
+
+  downloaded=""
+  case "$src" in
+    http://*|https://*)
+      downloaded=$(mktemp)
+      echo "Axiom: 正在下载 $src"
+      if ! curl -fsSL "$src" -o "$downloaded"; then
+        echo "Axiom: 下载失败"; rm -f "$downloaded"; return
+      fi
+      src="$downloaded"
+      ;;
+  esac
+
+  [ -f "$src" ] || { echo "Axiom: 找不到文件 $src"; [ -n "$downloaded" ] && rm -f "$downloaded"; return; }
+
+  case "$src" in
+    *.tar.gz|*.tgz) ;;
+    *) echo "Axiom: 只支持 .tar.gz 或 .tgz"; [ -n "$downloaded" ] && rm -f "$downloaded"; return ;;
+  esac
+
+  tmp=$(mktemp -d)
+  tar -xzf "$src" -C "$tmp" || { echo "Axiom: 解压失败"; rm -rf "$tmp"; [ -n "$downloaded" ] && rm -f "$downloaded"; return; }
+
+  src_brain=""; metafile=""
+  if [ -d "$tmp/brain" ]; then
+    src_brain="$tmp/brain"; metafile="$tmp/META"
+  else
+    n=$(ls -A "$tmp" | wc -l)
+    if [ "$n" -eq 1 ]; then
+      only=$(ls -A "$tmp")
+      if [ -d "$tmp/$only/brain" ]; then
+        src_brain="$tmp/$only/brain"; metafile="$tmp/$only/META"
+      fi
+    fi
+  fi
+
+  if [ -z "$src_brain" ] || [ ! -d "$src_brain" ]; then
+    echo "Axiom: 压缩包里没有 brain/ 目录"; rm -rf "$tmp"; [ -n "$downloaded" ] && rm -f "$downloaded"; return
+  fi
+  if [ ! -f "$metafile" ]; then
+    echo "Axiom: 缺少 META 文件，包不合法"; rm -rf "$tmp"; [ -n "$downloaded" ] && rm -f "$downloaded"; return
+  fi
+
+  mid=$(meta_get "$metafile" "id")
+  mauthor=$(meta_get "$metafile" "author")
+  mver=$(meta_get "$metafile" "version")
+  mdesc=$(meta_get "$metafile" "description")
+  mcount=$(meta_get "$metafile" "count")
+  mtime=$(meta_get "$metafile" "time")
+
+  if ! is_alnum "$mid"; then
+    echo "Axiom: META 里 id 不合法"; rm -rf "$tmp"; [ -n "$downloaded" ] && rm -f "$downloaded"; return
+  fi
+  if [ -z "$mauthor" ] || [ -z "$mver" ]; then
+    echo "Axiom: META 缺少 author 或 version"; rm -rf "$tmp"; [ -n "$downloaded" ] && rm -f "$downloaded"; return
+  fi
+  case "$mcount" in
+    ""|*[!0-9]*) echo "Axiom: META 里 count 不是数字"; rm -rf "$tmp"; [ -n "$downloaded" ] && rm -f "$downloaded"; return ;;
+  esac
+
+  echo "包信息："
+  echo "  ID:       $mid"
+  echo "  作者:     $mauthor"
+  echo "  版本:     $mver"
+  echo "  说明:     $mdesc"
+  echo "  条数:     $mcount"
+  echo "  导出时间: $mtime"
+  echo ""
+
+  count_new=0; count_over=0; count_skip=0; all=""
+
+  for f in "$src_brain"/*; do
+    [ -f "$f" ] || continue
+    name=$(basename "$f")
+    name_lower=$(printf '%s' "$name" | tr 'A-Z' 'a-z')
+    dst="$BRAIN_DIR/$name_lower"
+
+    if [ -f "$dst" ]; then
+      if [ "$all" = "over" ]; then
+        cp "$f" "$dst"; count_over=$((count_over+1)); continue
+      fi
+      if [ "$all" = "skip" ]; then
+        count_skip=$((count_skip+1)); continue
+      fi
+      echo "检测到同文件：$name_lower"
+      echo "请选择："
+      echo "  1 覆盖"
+      echo "  2 跳过"
+      echo "  3 全部覆盖"
+      echo "  4 全部跳过"
+      printf "> "
+      read choice
+      case "$choice" in
+        1) cp "$f" "$dst"; count_over=$((count_over+1)) ;;
+        2) count_skip=$((count_skip+1)) ;;
+        3) all="over"; cp "$f" "$dst"; count_over=$((count_over+1)) ;;
+        4) all="skip"; count_skip=$((count_skip+1)) ;;
+        *) echo "Axiom: 无效选择，跳过"; count_skip=$((count_skip+1)) ;;
+      esac
+    else
+      cp "$f" "$dst"; count_new=$((count_new+1))
+    fi
+  done
+
+  rm -rf "$tmp"
+  [ -n "$downloaded" ] && rm -f "$downloaded"
+
+  echo "Axiom: 导入完成"
+  echo "  新增: $count_new"
+  echo "  覆盖: $count_over"
+  echo "  跳过: $count_skip"
 }
 
 # ===== 入口 =====
@@ -636,21 +875,25 @@ case "$1" in
     shift
     case "$1" in
       api) chat_api ;;
+      set) shift; chat_set "$@" ;;
+      say) shift; chat_say "$@" ;;
+      ls)  chat_ls ;;
+      rm)  shift; chat_rm "$@" ;;
       *)   chat_local ;;
     esac
     ;;
   train)   shift; train_mode "$@" ;;
-  brain)   brain_mode ;;
+  brain)   shift; brain_mode "$@" ;;
   forget)  shift; forget_mode "$@" ;;
-  history) history_mode ;;
+  history) shift; history_mode "$@" ;;
   import)  shift; import_mode "$@" ;;
   export)  shift; export_mode "$@" ;;
   api)
     shift
     case "$1" in
-      edit) shift; api_edit "$@" ;;
-      rm)   shift; api_rm "$@" ;;
-      *)    api_add "$@" ;;
+      edit|set) shift; api_edit "$@" ;;
+      rm)       shift; api_rm "$@" ;;
+      *)        api_add "$@" ;;
     esac
     ;;
   model)   shift; model_mode "$@" ;;
