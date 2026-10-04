@@ -1,0 +1,100 @@
+好，这次换成 C++ 写的计算器。思路和前面 C 版一致，但用 std::string、std::stod 这些更现代的写法，跨平台也能直接跑：
+
+```cpp
+#include <iostream>
+#include <string>
+#include <cctype>
+#include <stdexcept>
+
+class Parser {
+    const std::string& s;
+    size_t pos = 0;
+
+    void skipSpaces() {
+        while (pos < s.size() && s[pos] == ' ') pos++;
+    }
+
+    double parseExpression() {
+        double x = parseTerm();
+        while (true) {
+            skipSpaces();
+            if (pos < s.size() && s[pos] == '+') { pos++; x += parseTerm(); }
+            else if (pos < s.size() && s[pos] == '-') { pos++; x -= parseTerm(); }
+            else return x;
+        }
+    }
+
+    double parseTerm() {
+        double x = parseFactor();
+        while (true) {
+            skipSpaces();
+            if (pos < s.size() && s[pos] == '*') { pos++; x *= parseFactor(); }
+            else if (pos < s.size() && s[pos] == '/') { pos++; x /= parseFactor(); }
+            else return x;
+        }
+    }
+
+    double parseFactor() {
+        skipSpaces();
+        double sign = 1.0;
+        if (pos < s.size() && s[pos] == '+') pos++;
+        else if (pos < s.size() && s[pos] == '-') { sign = -1.0; pos++; }
+
+        skipSpaces();
+        double x;
+        if (pos < s.size() && s[pos] == '(') {
+            pos++;
+            x = parseExpression();
+            skipSpaces();
+            if (pos < s.size() && s[pos] == ')') pos++;
+        } else {
+            size_t start = pos;
+            while (pos < s.size() && (std::isdigit(s[pos]) || s[pos] == '.')) pos++;
+            if (pos == start) throw std::runtime_error("缺少数字");
+            x = std::stod(s.substr(start, pos - start));
+        }
+        return sign * x;
+    }
+
+public:
+    explicit Parser(const std::string& expr) : s(expr) {}
+
+    double parse() {
+        double x = parseExpression();
+        skipSpaces();
+        if (pos < s.size()) throw std::runtime_error("多余字符");
+        return x;
+    }
+};
+
+int main() {
+    std::cout << "简单计算器（支持 + - * / 和括号）\n";
+    std::cout << "输入算式，输入 q 退出\n\n";
+
+    std::string input;
+    while (true) {
+        std::cout << "> ";
+        if (!std::getline(std::cin, input)) break;
+        if (input == "q") break;
+
+        try {
+            Parser p(input);
+            std::cout << "= " << p.parse() << "\n";
+        } catch (const std::exception& e) {
+            std::cout << "表达式错误：" << e.what() << "\n";
+        }
+    }
+    return 0;
+}
+```
+
+用法：保存为 calc.cpp，然后：
+
+```bash
+g++ -std=c++17 calc.cpp -o calc
+./calc        # Windows 下是 calc.exe
+```
+
+说明：支持 + - * /、括号、小数和正负号，比如 (3+5)*2/4 输出 = 4。输入 q 退出。用递归下降解析，比 eval 安全。
+
+需要我加上幂运算 ^、取模 %，还是改成图形界面版？

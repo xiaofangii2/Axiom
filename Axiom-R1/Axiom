@@ -1,0 +1,164 @@
+#!/bin/sh
+# Axiom-R1 - 思维版，纯查词，输出思考过程
+
+AXIOM_DIR="$HOME/.axiom/Axiom-R1"
+BRAIN_DIR="$AXIOM_DIR/brain"
+HISTORY="$AXIOM_DIR/history"
+MODEL_NAME="Axiom-R1"
+
+mkdir -p "$BRAIN_DIR"
+
+show_help() {
+  echo "Axiom-R1 - 思维版，纯查词"
+  echo ""
+  echo "  Axiom cog                       进入 R1 思维模式"
+  echo "  Axiom cog train <输入> :: <回复> 教 R1 一句"
+  echo "  Axiom cog brain [--raw]         看 R1 学了啥"
+  echo "  Axiom cog forget <输入>         忘掉 R1 一条"
+  echo "  Axiom cog history [clear]       看/清空 R1 聊天记录"
+  echo "  Axiom cog help                  显示这条帮助"
+}
+
+normalize_input() {
+  printf '%s' "$1" | sed 's/×/*/g; s/÷/\//g' | sed 's/^[[:space:]]*//;s/[，。？！、,\.?!;； ]*$//'
+}
+
+train_mode() {
+  line="$*"
+  case "$line" in
+    *"::"*)
+      input="${line%%::*}"
+      reply="${line#*::}"
+      input=$(echo "$input" | sed 's/^ *//;s/ *$//')
+      reply=$(echo "$reply" | sed 's/^ *//;s/ *$//')
+      [ -z "$input" ] && { echo "R1: 输入不能为空"; return; }
+      [ -z "$reply" ] && { echo "R1: 回复不能为空"; return; }
+      fname=$(printf '%s' "$input" | sed 's|/|_|g')
+      printf '%s' "$reply" > "$BRAIN_DIR/$fname"
+      echo "R1: 学会了 —— 「$fname」→「$reply」"
+      ;;
+    *)
+      echo "R1: 格式不对，例如："
+      echo "  Axiom cog train 你好 :: 你好啊"
+      ;;
+  esac
+}
+
+brain_mode() {
+  raw=""
+  [ "$1" = "--raw" ] && raw="yes"
+  if [ "$raw" = "yes" ]; then
+    echo "R1 学过的东西（仅文件名）："
+    count=0
+    for f in "$BRAIN_DIR"/*; do
+      [ -e "$f" ] || continue
+      echo "  $(basename "$f")"
+      count=$((count + 1))
+    done
+    echo ""
+    echo "共 $count 条"
+    return
+  fi
+  echo "R1 学过的东西："
+  count=0
+  for f in "$BRAIN_DIR"/*; do
+    [ -e "$f" ] || continue
+    echo "  「$(basename "$f")」→「$(cat "$f")」"
+    count=$((count + 1))
+  done
+  echo ""
+  echo "共 $count 条"
+}
+
+forget_mode() {
+  key="$*"
+  [ -z "$key" ] && { echo "R1: 用法：Axiom cog forget <输入>"; return; }
+  key=$(normalize_input "$key")
+  key_lower=$(printf '%s' "$key" | tr 'A-Z' 'a-z')
+
+  if [ -f "$BRAIN_DIR/$key_lower" ]; then
+    rm -f "$BRAIN_DIR/$key_lower"
+    echo "R1: 忘掉了 —— 「$key_lower」"
+    return
+  fi
+  if [ -f "$BRAIN_DIR/$key" ]; then
+    rm -f "$BRAIN_DIR/$key"
+    echo "R1: 忘掉了 —— 「$key」"
+    return
+  fi
+  echo "R1: 没找到「$key」"
+}
+
+local_lookup() {
+  inp=$(normalize_input "$1")
+  inp_lower=$(printf '%s' "$inp" | tr 'A-Z' 'a-z')
+
+  f="$BRAIN_DIR/$inp_lower"
+  if [ -f "$f" ]; then
+    cat "$f"; return 0
+  fi
+
+  f="$BRAIN_DIR/$inp"
+  if [ -f "$f" ]; then
+    cat "$f"; return 0
+  fi
+
+  return 1
+}
+
+log_history() {
+  ts=$(date "+%Y-%m-%d %H:%M:%S")
+  printf '[%s] 你: %s\n' "$ts" "$1" >> "$HISTORY"
+  printf '[%s] R1: %s\n' "$ts" "$2" >> "$HISTORY"
+}
+
+history_mode() {
+  case "$1" in
+    clear)
+      if [ -f "$HISTORY" ]; then
+        rm -f "$HISTORY"
+        echo "R1: 聊天记录已清空"
+      else
+        echo "R1: 还没有聊天记录"
+      fi
+      ;;
+    *)
+      if [ -f "$HISTORY" ]; then
+        cat "$HISTORY"
+      else
+        echo "R1: 还没有聊天记录"
+      fi
+      ;;
+  esac
+}
+
+cog_loop() {
+  echo "Axiom cog: 已进入 R1 思维模式（Ctrl+C 退出）"
+  while true; do
+    printf "Axiom cog> "
+    read input
+    [ -z "$input" ] && continue
+
+    echo "[思考] 收到用户输入: $input"
+
+    if out=$(local_lookup "$input"); then
+      echo "[思考] 查 R1 语料: $input → 命中"
+      echo "[结果] $out"
+      log_history "$input" "$out"
+    else
+      echo "[思考] 查 R1 语料: $input → 未命中"
+      echo "[结果] 未训练"
+      log_history "$input" "未训练"
+    fi
+  done
+}
+
+case "$1" in
+  help)    show_help ;;
+  train)   shift; train_mode "$@" ;;
+  brain)   shift; brain_mode "$@" ;;
+  forget)  shift; forget_mode "$@" ;;
+  history) shift; history_mode "$@" ;;
+  "")      cog_loop ;;
+  *)       cog_loop ;;
+esac

@@ -1,0 +1,142 @@
+ls 是 Linux 里最常用的命令之一，参数组合非常多。下面按常用场景分类，列出最实用的用法。
+
+一、基础用法
+
+```bash
+ls                  # 列出当前目录文件
+ls /path/to/dir     # 列出指定目录
+ls file1 file2      # 列出指定文件
+```
+
+二、显示格式
+
+```bash
+ls -l               # 长格式（权限、大小、时间）
+ls -1               # 每行一个文件
+ls -m               # 逗号分隔
+ls -x               # 按行横向排列
+ls -C               # 按列纵向排列（默认）
+```
+
+三、显示隐藏文件
+
+```bash
+ls -a               # 显示所有文件，含 . 和 ..
+ls -A               # 显示所有文件，不含 . 和 ..
+ls -d .*            # 只显示隐藏文件
+```
+
+四、排序
+
+```bash
+ls -t               # 按修改时间排序（新→旧）
+ls -tr              # 按修改时间排序（旧→新）
+ls -S               # 按文件大小排序（大→小）
+ls -X               # 按扩展名排序
+ls -r               # 反向排序
+ls -u               # 按访问时间排序
+ls -c               # 按状态改变时间排序
+```
+
+五、递归与目录
+
+```bash
+ls -R               # 递归列出所有子目录
+ls -d */            # 只列出目录
+ls -d */ | wc -l    # 统计目录数量
+```
+
+六、人类可读与详细信息
+
+```bash
+ls -lh              # 大小用 K/M/G 显示
+ls -l --si          # 用 1000 进制（KB/MB/GB）
+ls -l --block-size=M # 指定块大小单位
+ls -i               # 显示 inode 号
+ls -n               # 显示 UID/GID 而不是名字
+ls -o               # 长格式但不显示组
+ls -g               # 长格式但不显示所有者
+```
+
+七、颜色与标记
+
+```bash
+ls --color=auto     # 自动着色（默认）
+ls --color=always   # 强制着色
+ls --color=never    # 关闭着色
+ls -F               # 给文件加类型标记（/ * @ | =）
+ls --file-type      # 类似 -F 但不标记可执行文件
+ls -p               # 给目录加 /
+ls -q               # 不可打印字符用 ? 代替
+```
+
+八、时间显示
+
+```bash
+ls -l --time-style=full-iso    # 完整 ISO 时间
+ls -l --time-style=long-iso    # 长 ISO 时间
+ls -l --time-style=iso         # ISO 时间
+ls -l --time-style=+%Y-%m-%d   # 自定义格式
+```
+
+九、通配与过滤
+
+```bash
+ls *.txt            # 所有 .txt 文件
+ls [abc]*           # 以 a/b/c 开头
+ls ?.txt            # 单个字符 + .txt
+ls !(*.txt)         # 排除 .txt（需 extglob）
+```
+
+十、常用组合
+
+```bash
+ls -lah             # 最常用：长格式 + 隐藏 + 人类可读
+ls -ltr             # 按时间倒序，看最新文件
+ls -lhS             # 按大小排序，人类可读
+ls -R | less        # 递归查看，分页
+ls -l | grep ^d     # 只显示目录
+ls -l | grep ^-     # 只显示普通文件
+ls -l | grep ^l     # 只显示软链接
+```
+
+十一、其他实用参数
+
+```bash
+ls --help           # 查看帮助
+ls -v               # 自然排序（1,2,10 而不是 1,10,2）
+ls -U               # 不排序，按目录顺序
+ls -Q               # 文件名加引号
+ls -w 80            # 指定输出宽度
+ls -T 4             # 制表符宽度
+ls --group-directories-first  # 目录排前面
+ls --hide=*.log     # 隐藏匹配的文件
+ls --ignore=*.tmp   # 忽略匹配的文件
+```
+
+十二、统计类
+
+```bash
+ls -l | wc -l       # 统计文件数（含 total 行）
+ls -1 | wc -l       # 统计文件数
+ls -lS | head -5    # 最大的 5 个文件
+ls -lt | head -5    # 最新的 5 个文件
+```
+
+十三、别名常用配置
+
+```bash
+alias ll='ls -alh'
+alias la='ls -A'
+alias l='ls -CF'
+alias lt='ls -ltr'
+```
+
+十四、注意点
+
+· ls 默认不显示隐藏文件，. 开头的不显示
+· ls -l 第一列是权限，d 开头是目录，- 是文件，l 是链接
+· ls 输出到管道时默认不按列排列，可以用 -C 强制
+· 颜色取决于 LS_COLORS 环境变量
+
+需要我帮你写一个自定义 ls 别名脚本，或者按场景推荐最顺手的组合吗？

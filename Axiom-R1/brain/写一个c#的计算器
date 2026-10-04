@@ -1,0 +1,104 @@
+你是想说 C# 吗？如果是的话，这里是一个 C# 写的控制台计算器，Windows 上用 .NET 就能跑：
+
+```csharp
+using System;
+
+class Calculator
+{
+    static void Main()
+    {
+        Console.WriteLine("简单计算器（支持 + - * / 和括号）");
+        Console.WriteLine("输入算式，输入 q 退出\n");
+
+        while (true)
+        {
+            Console.Write("> ");
+            string input = Console.ReadLine();
+            if (input == null || input.Trim().ToLower() == "q") break;
+
+            try
+            {
+                double result = Eval(input);
+                Console.WriteLine("= " + result);
+            }
+            catch
+            {
+                Console.WriteLine("表达式错误");
+            }
+        }
+    }
+
+    static double Eval(string expr)
+    {
+        int pos = 0;
+        double value = ParseExpression(expr, ref pos);
+        SkipSpaces(expr, ref pos);
+        if (pos < expr.Length) throw new Exception("多余字符");
+        return value;
+    }
+
+    static void SkipSpaces(string s, ref int pos)
+    {
+        while (pos < s.Length && s[pos] == ' ') pos++;
+    }
+
+    static double ParseExpression(string s, ref int pos)
+    {
+        double x = ParseTerm(s, ref pos);
+        while (true)
+        {
+            SkipSpaces(s, ref pos);
+            if (pos < s.Length && s[pos] == '+') { pos++; x += ParseTerm(s, ref pos); }
+            else if (pos < s.Length && s[pos] == '-') { pos++; x -= ParseTerm(s, ref pos); }
+            else return x;
+        }
+    }
+
+    static double ParseTerm(string s, ref int pos)
+    {
+        double x = ParseFactor(s, ref pos);
+        while (true)
+        {
+            SkipSpaces(s, ref pos);
+            if (pos < s.Length && s[pos] == '*') { pos++; x *= ParseFactor(s, ref pos); }
+            else if (pos < s.Length && s[pos] == '/') { pos++; x /= ParseFactor(s, ref pos); }
+            else return x;
+        }
+    }
+
+    static double ParseFactor(string s, ref int pos)
+    {
+        SkipSpaces(s, ref pos);
+        double sign = 1;
+        if (pos < s.Length && s[pos] == '+') pos++;
+        else if (pos < s.Length && s[pos] == '-') { sign = -1; pos++; }
+
+        SkipSpaces(s, ref pos);
+        double x;
+        if (pos < s.Length && s[pos] == '(')
+        {
+            pos++;
+            x = ParseExpression(s, ref pos);
+            SkipSpaces(s, ref pos);
+            if (pos < s.Length && s[pos] == ')') pos++;
+        }
+        else
+        {
+            int start = pos;
+            while (pos < s.Length && (char.IsDigit(s[pos]) || s[pos] == '.')) pos++;
+            if (pos == start) throw new Exception("缺少数字");
+            x = double.Parse(s.Substring(start, pos - start));
+        }
+        return sign * x;
+    }
+}
+```
+
+用法：
+
+· 保存为 Calculator.cs
+· 终端运行 dotnet run（需要先装 .NET SDK），或者用 Visual Studio 新建控制台项目粘贴进去
+
+说明：和 C 版思路一样，手写递归下降解析，安全支持 + - * /、括号、小数。输入 q 退出。
+
+需要我改成 WinForms 图形界面版，还是加上幂运算、取模、sin/cos 这些功能？

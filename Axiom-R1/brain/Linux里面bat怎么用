@@ -1,0 +1,42 @@
+
+五、bat —— 带语法高亮的 cat
+
+安装
+
+```bash
+# Ubuntu/Debian
+sudo apt install bat
+
+# macOS
+brew install bat
+
+# 注意：有些系统命令名是 batcat
+```
+
+基本用法
+
+```bash
+bat 文件名
+batcat 文件名      # Debian/Ubuntu 下可能叫这个
+```
+
+常用参数
+
+```bash
+bat -n 文件名        # 只显示行号
+bat -p 文件名        # 不显示行号、文件头
+bat -A 文件名        # 显示特殊字符
+bat -l python 文件   # 指定语言高亮
+bat --theme=Monokai 文件名   # 指定主题
+bat -r 10:20 文件名  # 只显示 10-20 行
+```
+
+组合
+
+```bash
+bat 文件1 文件2      # 多文件
+cat 文件 | bat       # 管道输入
+```
+
+---
+

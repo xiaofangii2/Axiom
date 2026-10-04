@@ -1,0 +1,56 @@
+在终端里创建稀疏文件，最常用的是 truncate 和 dd。
+
+方法一：truncate（最简单）
+
+```bash
+truncate -s 10G sparse.img
+```
+
+创建一个 10GB 的稀疏文件，实际占用磁盘几乎为 0。
+
+方法二：dd（可指定偏移）
+
+```bash
+dd if=/dev/zero of=sparse.img bs=1 count=0 seek=10G
+```
+
+seek=10G 让文件跳到 10GB 位置，中间全是空洞，不占实际空间。
+
+方法三：fallocate（快速分配，但可能不稀疏）
+
+```bash
+fallocate -l 10G file.img
+```
+
+注意：fallocate 会真正分配磁盘块，不是稀疏的。要稀疏得加 -n（部分文件系统支持）：
+
+```bash
+fallocate -n -l 10G file.img
+```
+
+怎么确认是稀疏文件
+
+```bash
+ls -l sparse.img      # 看逻辑大小
+du -h sparse.img      # 看实际占用
+```
+
+如果 ls 显示 10G，du 显示 0 或很小，就是稀疏文件。
+
+或者用：
+
+```bash
+du --apparent-size -h sparse.img   # 逻辑大小
+du -h sparse.img                    # 实际占用
+```
+
+Windows
+
+PowerShell 里可以用：
+
+```powershell
+fsutil file createnew sparse.img 10737418240
+fsutil sparse setflag sparse.img
+```
+
+需要我帮你写一个创建指定大小稀疏文件并验证的脚本吗？

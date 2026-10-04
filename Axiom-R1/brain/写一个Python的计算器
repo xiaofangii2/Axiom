@@ -1,0 +1,49 @@
+好的，这里是一个带图形界面的计算器，用 Python 自带的 tkinter 库，Windows、macOS、Linux 都能直接跑：
+
+import tkinter as tk
+
+def click(event):
+    text = event.widget.cget("text")
+    if text == "=":
+        try:
+            result = str(eval(entry.get()))
+            entry.delete(0, tk.END)
+            entry.insert(0, result)
+        except Exception:
+            entry.delete(0, tk.END)
+            entry.insert(0, "错误")
+    elif text == "C":
+        entry.delete(0, tk.END)
+    else:
+        entry.insert(tk.END, text)
+
+root = tk.Tk()
+root.title("计算器")
+root.geometry("300x400")
+
+entry = tk.Entry(root, font="Arial 24", justify="right")
+entry.pack(fill="both", padx=10, pady=10)
+
+buttons = [
+    ["7", "8", "9", "/"],
+    ["4", "5", "6", "*"],
+    ["1", "2", "3", "-"],
+    ["0", ".", "=", "+"],
+    ["C"]
+]
+
+for row in buttons:
+    frame = tk.Frame(root)
+    frame.pack(expand=True, fill="both")
+    for btn_text in row:
+        btn = tk.Button(frame, text=btn_text, font="Arial 18")
+        btn.pack(side="left", expand=True, fill="both", padx=2, pady=2)
+        btn.bind("<Button-1>", click)
+
+root.mainloop()
+
+用法：保存为 calc.py，终端运行 python calc.py 就行。点按钮输入算式，按 = 出结果，C 清空。
+
+说明：这里用了 eval()，只适合自己本地随便用。如果要做成给别人用的程序，建议换成安全的表达式解析方式，避免被恶意输入执行代码。
+
+需要我改成命令行版，或者加上键盘支持吗？

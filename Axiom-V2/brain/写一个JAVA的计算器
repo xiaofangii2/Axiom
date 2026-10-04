@@ -1,0 +1,129 @@
+好，这次换成 Java 写的图形界面计算器，用 Swing，Windows、macOS、Linux 都能跑：
+
+```java
+import javax.swing.*;
+import java.awt.*;
+
+public class Calculator {
+    public static void main(String[] args) {
+        JFrame frame = new JFrame("计算器");
+        frame.setSize(300, 400);
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+
+        JTextField display = new JTextField();
+        display.setFont(new Font("Arial", Font.PLAIN, 24));
+        display.setHorizontalAlignment(JTextField.RIGHT);
+        display.setEditable(false);
+        frame.add(display, BorderLayout.NORTH);
+
+        JPanel panel = new JPanel();
+        panel.setLayout(new GridLayout(5, 4, 5, 5));
+
+        String[] keys = {
+            "7", "8", "9", "/",
+            "4", "5", "6", "*",
+            "1", "2", "3", "-",
+            "0", ".", "=", "+",
+            "C"
+        };
+
+        for (String key : keys) {
+            JButton btn = new JButton(key);
+            btn.setFont(new Font("Arial", Font.PLAIN, 18));
+            btn.addActionListener(e -> {
+                String cmd = btn.getText();
+                if (cmd.equals("=")) {
+                    try {
+                        double result = eval(display.getText());
+                        display.setText(String.valueOf(result));
+                    } catch (Exception ex) {
+                        display.setText("错误");
+                    }
+                } else if (cmd.equals("C")) {
+                    display.setText("");
+                } else {
+                    display.setText(display.getText() + cmd);
+                }
+            });
+            panel.add(btn);
+        }
+
+        frame.add(panel, BorderLayout.CENTER);
+        frame.setVisible(true);
+    }
+
+    // 简单的四则运算求值
+    static double eval(String expr) {
+        return new Object() {
+            int pos = -1, ch;
+
+            void nextChar() {
+                ch = (++pos < expr.length()) ? expr.charAt(pos) : -1;
+            }
+
+            boolean eat(int c) {
+                while (ch == ' ') nextChar();
+                if (ch == c) {
+                    nextChar();
+                    return true;
+                }
+                return false;
+            }
+
+            double parse() {
+                nextChar();
+                double x = parseExpression();
+                if (pos < expr.length()) throw new RuntimeException("Unexpected: " + (char) ch);
+                return x;
+            }
+
+            double parseExpression() {
+                double x = parseTerm();
+                for (;;) {
+                    if (eat('+')) x += parseTerm();
+                    else if (eat('-')) x -= parseTerm();
+                    else return x;
+                }
+            }
+
+            double parseTerm() {
+                double x = parseFactor();
+                for (;;) {
+                    if (eat('*')) x *= parseFactor();
+                    else if (eat('/')) x /= parseFactor();
+                    else return x;
+                }
+            }
+
+            double parseFactor() {
+                if (eat('+')) return parseFactor();
+                if (eat('-')) return -parseFactor();
+
+                double x;
+                int startPos = pos;
+                if (eat('(')) {
+                    x = parseExpression();
+                    eat(')');
+                } else if ((ch >= '0' && ch <= '9') || ch == '.') {
+                    while ((ch >= '0' && ch <= '9') || ch == '.') nextChar();
+                    x = Double.parseDouble(expr.substring(startPos, pos));
+                } else {
+                    throw new RuntimeException("Unexpected: " + (char) ch);
+                }
+                return x;
+            }
+        }.parse();
+    }
+}
+```
+
+用法：保存为 Calculator.java，终端运行：
+
+```bash
+javac Calculator.java
+java Calculator
+```
+
+说明：这次没用 eval，而是手写了一个小的表达式解析器，能安全处理加减乘除、括号和小数，比 Java 里反射调 ScriptEngine 更干净，也不怕恶意输入。
+
+需要我改成支持键盘输入，或者加退格键、百分号吗？

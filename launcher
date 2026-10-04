@@ -1,0 +1,5 @@
+#!/bin/sh
+# Axiom - 调度脚本，转发到 V2
+
+V2="$HOME/.axiom/Axiom-V2/Axiom"
+exec sh "$V2" "$@"

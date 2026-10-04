@@ -1,0 +1,26 @@
+全平台安装 Python 3 的流程如下，Android 平台继续使用 Termux。
+
+💻 Windows
+
+· 推荐方式：打开 Microsoft Store 搜索“Python 3”安装最新版。它会自动处理环境变量（PATH），无需手动配置。
+· 备选：去官网下载安装包，安装时务必勾选 “Add Python to PATH”。
+· 验证：打开终端输入 python --version。
+
+🍎 macOS
+
+· 推荐方式：去官网下载 .pkg 安装包。安装后建议在 /Applications/Python 3.x/ 里双击 “Install Certificates.command” 来修复证书问题。
+· 备选：如果有 Homebrew，直接运行 brew install python3。
+· 验证：终端输入 python3 --version。
+
+🐧 Linux
+
+· Debian/Ubuntu：sudo apt update && sudo apt install python3 python3-pip。
+· Fedora/CentOS：sudo dnf install python3（CentOS 7 用 yum）。
+· 注意：不要卸载或替换系统自带的 python3，否则可能导致系统工具崩溃。
+
+📱 Android (Termux)
+
+· 安装：从 F-Droid 安装 Termux，运行 pkg update && pkg upgrade，然后执行 pkg install python。
+· 建议：如果后续安装带 C 扩展的库（如 numpy）报错，先装 pkg install build-essential。也可以优先用 pkg install python-numpy 这种 Termux 预编译包来避开麻烦。
+
+全平台通用的最终验证方法：安装后在终端输入 python --version 或 python3 --version，能正常显示版本号即成功。

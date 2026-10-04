@@ -1,0 +1,106 @@
+好，这次换成 C 语言写的计算器。用标准 C，不依赖图形库，Windows、macOS、Linux 都能编译运行：
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+const char *expr;
+int pos;
+
+double parseExpression(void);
+double parseTerm(void);
+double parseFactor(void);
+
+void skipSpaces(void) {
+    while (expr[pos] == ' ') pos++;
+}
+
+double parseFactor(void) {
+    skipSpaces();
+    double sign = 1.0;
+    if (expr[pos] == '+') { pos++; }
+    else if (expr[pos] == '-') { sign = -1.0; pos++; }
+
+    skipSpaces();
+    double x = 0.0;
+
+    if (expr[pos] == '(') {
+        pos++;
+        x = parseExpression();
+        skipSpaces();
+        if (expr[pos] == ')') pos++;
+    } else {
+        int start = pos;
+        while (isdigit(expr[pos]) || expr[pos] == '.') pos++;
+        if (pos == start) {
+            printf("表达式错误\n");
+            exit(1);
+        }
+        char buf[64];
+        int len = pos - start;
+        strncpy(buf, expr + start, len);
+        buf[len] = '\0';
+        x = atof(buf);
+    }
+    return sign * x;
+}
+
+double parseTerm(void) {
+    double x = parseFactor();
+    for (;;) {
+        skipSpaces();
+        if (expr[pos] == '*') { pos++; x *= parseFactor(); }
+        else if (expr[pos] == '/') { pos++; x /= parseFactor(); }
+        else return x;
+    }
+}
+
+double parseExpression(void) {
+    double x = parseTerm();
+    for (;;) {
+        skipSpaces();
+        if (expr[pos] == '+') { pos++; x += parseTerm(); }
+        else if (expr[pos] == '-') { pos++; x -= parseTerm(); }
+        else return x;
+    }
+}
+
+int main(void) {
+    char input[256];
+    printf("简单计算器（支持 + - * / 和括号）\n");
+    printf("输入算式，输入 q 退出\n\n");
+
+    while (1) {
+        printf("> ");
+        if (!fgets(input, sizeof(input), stdin)) break;
+
+        input[strcspn(input, "\n")] = '\0';
+        if (strcmp(input, "q") == 0) break;
+
+        expr = input;
+        pos = 0;
+        double result = parseExpression();
+        skipSpaces();
+
+        if (expr[pos] != '\0') {
+            printf("表达式错误\n");
+        } else {
+            printf("= %g\n", result);
+        }
+    }
+    return 0;
+}
+```
+
+用法：保存为 calc.c，然后：
+
+```bash
+gcc calc.c -o calc
+./calc        # Windows 下是 calc.exe
+```
+
+说明：这是一个命令行计算器，支持 + - * /、括号和小数，比如输入 (3+5)*2/4 会输出 = 4。输入 q 退出。
+
+需要我改成图形界面版（比如 Windows 用 Win32 API），或者加上幂运算、取模吗？

@@ -1,0 +1,23 @@
+全平台安装 Java 的流程如下，Android 平台改用 Termux 命令行安装。
+
+💻 Windows
+
+· 安装：打开 PowerShell 或命令提示符，运行 winget install Microsoft.OpenJDK.21。
+· 配置：打开“编辑系统环境变量” → “环境变量”，新建系统变量 JAVA_HOME，值为 JDK 安装路径（如 C:\Program Files\Microsoft\jdk-21...），然后在 Path 中添加 %JAVA_HOME%\bin。
+
+🍎 macOS
+
+· 安装：终端运行 brew install openjdk@21。
+· 配置：在 ~/.zshrc 末尾添加 export PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH"（Intel 芯片路径可能不同），然后 source ~/.zshrc。
+
+🐧 Linux
+
+· 安装：终端运行 sudo apt install openjdk-21-jdk（Ubuntu/Debian）。
+· 配置：在 ~/.bashrc 末尾添加 export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 和 export PATH=$JAVA_HOME/bin:$PATH，然后 source ~/.bashrc。
+
+📱 Android (Termux)
+
+· 安装：从 F-Droid 安装 Termux，运行 pkg update && pkg upgrade，然后执行 pkg install openjdk-21。
+· 注意：如果安装或运行时报错，可尝试先运行 pkg install glibc-repo glibc-runner -y。
+
+安装完成后，在终端输入 java -version，能正常显示版本号就说明配置成功了。

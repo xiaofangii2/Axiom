@@ -1,0 +1,43 @@
+在终端里压缩成 zip，最常用的是 zip 命令。
+
+Linux / macOS
+
+```bash
+zip -r 压缩包名.zip 要压缩的文件夹或文件
+```
+
+例子：
+
+```bash
+zip -r backup.zip myfolder
+zip -r photos.zip *.jpg
+```
+
+Windows
+
+Windows 10/11 自带的 PowerShell 里，zip 命令不一定有，可以用：
+
+```powershell
+Compress-Archive -Path 要压缩的东西 -DestinationPath 压缩包名.zip
+```
+
+例子：
+
+```powershell
+Compress-Archive -Path C:\myfolder -DestinationPath C:\backup.zip
+```
+
+常用参数
+
+· -r：递归压缩文件夹（必须加，否则只压空目录）
+· -e：加密（会提示输密码）
+· -9：最高压缩率
+· -q：安静模式，不显示过程
+
+如果提示 zip: command not found
+
+· Ubuntu/Debian：sudo apt install zip
+· CentOS/Fedora：sudo dnf install zip
+· macOS：一般自带，没有就 brew install zip
+
+需要我帮你写一个自动带日期命名的压缩脚本吗？

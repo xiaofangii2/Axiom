@@ -1,0 +1,5 @@
+# Axiom 配置
+# can_think: 是否默认开启思考（true / false）
+# 命令行末尾加 think 只当次生效，不写回这里
+
+can_think: false

@@ -1,0 +1,49 @@
+好，这是一个 Shell（Bash） 版计算器，用 bc 做计算核心，支持加减乘除、括号和小数：
+
+```bash
+#!/bin/bash
+
+echo "简单计算器（支持 + - * / 和括号）"
+echo "输入算式，输入 q 退出"
+echo
+
+while true; do
+    read -rp "> " input
+
+    # 退出
+    if [ "$input" = "q" ]; then
+        echo "再见！"
+        break
+    fi
+
+    # 空输入跳过
+    if [ -z "$input" ]; then
+        continue
+    fi
+
+    # 用 bc 计算，scale=10 保留小数精度
+    result=$(echo "scale=10; $input" | bc 2>/dev/null)
+
+    if [ $? -ne 0 ] || [ -z "$result" ]; then
+        echo "表达式错误"
+    else
+        # 去掉末尾多余的 0
+        echo "= $(echo "$result" | sed 's/\.0*$//; s/\([0-9]\)0*$/\1/')"
+    fi
+done
+```
+
+用法：
+
+```bash
+chmod +x calc.sh
+./calc.sh
+```
+
+说明：
+
+· 依赖 bc，Linux/macOS 一般自带；Windows 可在 WSL 或 Git Bash 里跑。
+· scale=10 表示小数保留 10 位，最后用 sed 去掉多余的尾零。
+· 支持 (3+5)*2/4 这种带括号的算式。
+
+需要我改成纯 Bash 不用 bc 的版本，还是加上命令行直接传参（比如 ./calc.sh "1+2"）？

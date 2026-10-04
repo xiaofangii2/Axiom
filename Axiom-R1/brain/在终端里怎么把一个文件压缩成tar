@@ -1,0 +1,56 @@
+在终端里压缩成 tar，常用的是 tar 命令，一般配合 gzip 一起用。
+
+最常用：.tar.gz（推荐）
+
+```bash
+tar -czvf 压缩包名.tar.gz 要压缩的文件夹或文件
+```
+
+例子：
+
+```bash
+tar -czvf backup.tar.gz myfolder
+tar -czvf photos.tar.gz *.jpg
+```
+
+只打包不压缩：.tar
+
+```bash
+tar -cvf 压缩包名.tar 要压缩的东西
+```
+
+其他压缩格式
+
+格式 命令
+.tar.gz tar -czvf out.tar.gz dir
+.tar.bz2 tar -cjvf out.tar.bz2 dir
+.tar.xz tar -cJvf out.tar.xz dir
+.tar（不压缩） tar -cvf out.tar dir
+
+参数含义
+
+· -c：创建压缩包
+· -z：用 gzip 压缩
+· -j：用 bzip2 压缩
+· -J：用 xz 压缩
+· -v：显示过程
+· -f：指定文件名（必须放最后）
+
+解压
+
+```bash
+tar -xzvf backup.tar.gz      # 解压 .tar.gz
+tar -xjvf backup.tar.bz2     # 解压 .tar.bz2
+tar -xJvf backup.tar.xz      # 解压 .tar.xz
+tar -xvf backup.tar          # 解压 .tar
+```
+
+Windows
+
+Windows 10/11 自带 tar 命令，用法一样：
+
+```powershell
+tar -czvf backup.tar.gz myfolder
+```
+
+需要我帮你写一个自动带日期命名的 tar 备份脚本吗？
