@@ -1,5 +1,86 @@
 #!/bin/sh
-# Axiom - 调度脚本，转发到 V2
+# Axiom - 调度脚本
 
-V2="$HOME/.axiom/Axiom-V2/Axiom"
-exec sh "$V2" "$@"
+AXIOM_ROOT="$HOME/.axiom"
+LOGS_DIR="$AXIOM_ROOT/logs"
+COUNTER="$LOGS_DIR/.counter"
+DEBUG_FLAG="$AXIOM_ROOT/debug"
+
+V2="$AXIOM_ROOT/Axiom-V2/Axiom"
+R1="$AXIOM_ROOT/Axiom-R1/Axiom"
+S1="$AXIOM_ROOT/Axiom-S1/Axiom"
+
+mkdir -p "$LOGS_DIR"
+
+# ===== debug 处理 =====
+debug_cmd() {
+  case "$1" in
+    on)
+      touch "$DEBUG_FLAG"
+      echo "Axiom: debug 已开启"
+      echo "日志目录：$LOGS_DIR"
+      ;;
+    off)
+      rm -f "$DEBUG_FLAG"
+      echo "Axiom: debug 已关闭"
+      ;;
+    ""|status)
+      if [ -f "$DEBUG_FLAG" ]; then
+        echo "Axiom: debug 当前为 on"
+        echo "日志目录：$LOGS_DIR"
+      else
+        echo "Axiom: debug 当前为 off"
+      fi
+      ;;
+    *)
+      echo "Axiom: 用法：Axiom debug on|off|status"
+      ;;
+  esac
+}
+
+# ===== 启动计数 =====
+bump_counter() {
+  today=$(date "+%Y-%m-%d")
+  cur_date=""
+  cur_num=0
+
+  if [ -f "$COUNTER" ]; then
+    cur_date=$(sed -n '1p' "$COUNTER")
+    cur_num=$(sed -n '2p' "$COUNTER")
+    case "$cur_num" in
+      ""|*[!0-9]*) cur_num=0 ;;
+    esac
+  fi
+
+  if [ "$cur_date" != "$today" ]; then
+    cur_num=1
+  else
+    cur_num=$((cur_num + 1))
+  fi
+
+  printf '%s\n%s\n' "$today" "$cur_num" > "$COUNTER"
+  export AXIOM_RUN_NUM="$cur_num"
+}
+
+# ===== 主流程 =====
+case "$1" in
+  debug)
+    shift
+    debug_cmd "$@"
+    exit 0
+    ;;
+  s1)
+    shift
+    bump_counter
+    exec sh "$S1" "$@"
+    ;;
+  cog)
+    shift
+    bump_counter
+    exec sh "$R1" "$@"
+    ;;
+  *)
+    bump_counter
+    exec sh "$V2" "$@"
+    ;;
+esac

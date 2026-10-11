@@ -1,21 +1,36 @@
 #!/bin/sh
-# Axiom-R1 - 思维版，纯查词，输出思考过程
+# Axiom-R1 - 思维版，纯查词
 
 AXIOM_DIR="$HOME/.axiom/Axiom-R1"
 BRAIN_DIR="$AXIOM_DIR/brain"
 HISTORY="$AXIOM_DIR/history"
-MODEL_NAME="Axiom-R1"
+LOGS_DIR="$HOME/.axiom/logs"
+DEBUG_FLAG="$HOME/.axiom/debug"
 
 mkdir -p "$BRAIN_DIR"
+
+debug_on() {
+  [ -f "$DEBUG_FLAG" ]
+}
+
+dlog() {
+  debug_on || return 0
+  y=$(date "+%y")
+  md=$(date "+%m.%d")
+  n="${AXIOM_RUN_NUM:-0}"
+  f="$LOGS_DIR/${y}-${md}-${n}_Think.log"
+  ts=$(date "+%H:%M:%S")
+  printf '[%s] %s\n' "$ts" "$*" >> "$f"
+}
 
 show_help() {
   echo "Axiom-R1 - 思维版，纯查词"
   echo ""
-  echo "  Axiom cog                       进入 R1 思维模式"
+  echo "  Axiom cog                       进入思维模式"
   echo "  Axiom cog train <输入> :: <回复> 教 R1 一句"
   echo "  Axiom cog brain [--raw]         看 R1 学了啥"
   echo "  Axiom cog forget <输入>         忘掉 R1 一条"
-  echo "  Axiom cog history [clear]       看/清空 R1 聊天记录"
+  echo "  Axiom cog history [clear]       看/清空 R1 记录"
   echo "  Axiom cog help                  显示这条帮助"
 }
 
@@ -36,6 +51,7 @@ train_mode() {
       fname=$(printf '%s' "$input" | sed 's|/|_|g')
       printf '%s' "$reply" > "$BRAIN_DIR/$fname"
       echo "R1: 学会了 —— 「$fname」→「$reply」"
+      dlog "train: $fname -> $reply"
       ;;
     *)
       echo "R1: 格式不对，例如："
@@ -145,10 +161,12 @@ cog_loop() {
       echo "[思考] 查 R1 语料: $input → 命中"
       echo "[结果] $out"
       log_history "$input" "$out"
+      dlog "cog: $input -> $out"
     else
       echo "[思考] 查 R1 语料: $input → 未命中"
       echo "[结果] 未训练"
       log_history "$input" "未训练"
+      dlog "cog: $input -> 未训练"
     fi
   done
 }

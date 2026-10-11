@@ -10,11 +10,27 @@ CONV_DIR="$AXIOM_DIR/conv"
 R1_BRAIN="$HOME/.axiom/Axiom-R1/brain"
 R1_HISTORY="$HOME/.axiom/Axiom-R1/history"
 CONFIG="$HOME/.axiom/config.yml"
+LOGS_DIR="$HOME/.axiom/logs"
+DEBUG_FLAG="$HOME/.axiom/debug"
 MODEL_NAME="Axiom"
 MAX_TURNS=40
 
-mkdir -p "$BRAIN_DIR" "$CONV_DIR"
+mkdir -p "$BRAIN_DIR" "$CONV_DIR" "$HOME/.axiom/Axiom-R1" "$LOGS_DIR"
 touch "$INI"
+
+debug_on() {
+  [ -f "$DEBUG_FLAG" ]
+}
+
+dlog() {
+  debug_on || return 0
+  y=$(date "+%y")
+  md=$(date "+%m.%d")
+  n="${AXIOM_RUN_NUM:-0}"
+  f="$LOGS_DIR/${y}-${md}-${n}_V2.log"
+  ts=$(date "+%H:%M:%S")
+  printf '[%s] %s\n' "$ts" "$*" >> "$f"
+}
 
 show_help() {
   echo "Axiom-V2 - 一个还没训练的小模型"
@@ -39,6 +55,10 @@ show_help() {
   echo "  Axiom config set <键> <值>       修改配置"
   echo "  Axiom import <文件|URL>          导入语料包"
   echo "  Axiom export [文件]              导出语料为 brain.tar.gz"
+  echo "  Axiom s1 token                   生成一个服务 token"
+  echo "  Axiom s1 [端口]                  启动 S1 服务"
+  echo "  Axiom cog                        进入 R1 思维模式"
+  echo "  Axiom debug on|off|status        详细日志开关"
   echo ""
   echo "协议类型 type: openai / gemini / ollama"
   echo "会话上限：$MAX_TURNS 轮，超出从头砍"
@@ -71,7 +91,6 @@ do_math() {
   printf '%s\n' "scale=10; $expr" | bc 2>/dev/null | sed 's/\.0*$//;s/\([0-9]\)0*$/\1/'
 }
 
-# R1 后台跑一次，结果写进 R1 自己的 history
 think_r1() {
   inp="$1"
   inp_norm=$(normalize_input "$inp")
@@ -89,6 +108,7 @@ think_r1() {
   ts=$(date "+%Y-%m-%d %H:%M:%S")
   printf '[%s] 你: %s\n' "$ts" "$inp" >> "$R1_HISTORY"
   printf '[%s] R1: %s\n' "$ts" "$result" >> "$R1_HISTORY"
+  dlog "think_r1: $inp -> $result"
 }
 
 config_cmd() {
@@ -138,6 +158,7 @@ train_mode() {
       fname=$(printf '%s' "$input" | sed 's|/|_|g')
       printf '%s' "$reply" > "$BRAIN_DIR/$fname"
       echo "Axiom: 学会了 —— 「$fname」→「$reply」"
+      dlog "train: $fname -> $reply"
       ;;
     *)
       echo "Axiom: 格式不对，例如："

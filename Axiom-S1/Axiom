@@ -1,0 +1,93 @@
+#!/bin/sh
+# Axiom-S1 - 只负责跑 API 服务
+
+TOKEN_FILE="$HOME/.axiom/token.tnt"
+SERVE_PY="$HOME/.axiom/Axiom-S1/serve.py"
+LOGS_DIR="$HOME/.axiom/logs"
+DEBUG_FLAG="$HOME/.axiom/debug"
+
+debug_on() {
+  [ -f "$DEBUG_FLAG" ]
+}
+
+dlog() {
+  debug_on || return 0
+  y=$(date "+%y")
+  md=$(date "+%m.%d")
+  n="${AXIOM_RUN_NUM:-0}"
+  f="$LOGS_DIR/${y}-${md}-${n}_S1.log"
+  ts=$(date "+%H:%M:%S")
+  printf '[%s] %s\n' "$ts" "$*" >> "$f"
+}
+
+show_help() {
+  echo "Axiom-S1 - API 服务"
+  echo ""
+  echo "  Axiom s1 token      生成一个 token"
+  echo "  Axiom s1 [端口]     启动服务（默认 8712）"
+  echo "  Axiom s1 help       显示这条帮助"
+}
+
+serve_cmd() {
+  sub="$1"
+  case "$sub" in
+    help)
+      show_help
+      ;;
+    token)
+      tk=$(tr -dc '0-9A-Za-z' < /dev/urandom | head -c 15)
+      [ -z "$tk" ] && tk=$(date +%s%N | tail -c 16)
+      printf '%s\n' "$tk" >> "$TOKEN_FILE"
+      echo "Axiom: 新 token 已生成 → $tk"
+      echo "已写入 $TOKEN_FILE"
+      dlog "token: generated"
+      ;;
+    "")
+      if [ ! -f "$SERVE_PY" ]; then
+        echo "Axiom: 找不到 $SERVE_PY"
+        return 1
+      fi
+      if ! command -v python >/dev/null 2>&1; then
+        echo "Axiom: 没有 python，先 apt install python"
+        return 1
+      fi
+      if [ ! -f "$TOKEN_FILE" ] || [ ! -s "$TOKEN_FILE" ]; then
+        echo "Axiom: 还没有 token，先跑 Axiom s1 token"
+        return 1
+      fi
+      export AXIOM_RUN_NUM
+      exec python "$SERVE_PY"
+      ;;
+    *)
+      if [ ! -f "$SERVE_PY" ]; then
+        echo "Axiom: 找不到 $SERVE_PY"
+        return 1
+      fi
+      if ! command -v python >/dev/null 2>&1; then
+        echo "Axiom: 没有 python，先 apt install python"
+        return 1
+      fi
+      if [ ! -f "$TOKEN_FILE" ] || [ ! -s "$TOKEN_FILE" ]; then
+        echo "Axiom: 还没有 token，先跑 Axiom s1 token"
+        return 1
+      fi
+      export AXIOM_RUN_NUM
+      exec python "$SERVE_PY" "$sub"
+      ;;
+  esac
+}
+
+case "$1" in
+  help)
+    show_help
+    ;;
+  token)
+    serve_cmd token
+    ;;
+  "")
+    serve_cmd ""
+    ;;
+  *)
+    serve_cmd "$1"
+    ;;
+esac
